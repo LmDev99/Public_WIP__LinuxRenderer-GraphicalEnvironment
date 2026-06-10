@@ -1,0 +1,311 @@
+/*
+ * Copyright (c) 2026 Logan Mottern
+ * All rights reserved.
+ *
+ * This source code is provided for portfolio and review purposes only.
+ * No permission is granted to copy, modify, distribute, sublicense, or use
+ * this software except with the express written permission of the copyright owner.
+ */
+
+#version 430 core
+
+
+struct updateBlock{
+    int ID;
+    int pixelIndex;
+    int width;
+    int height;
+    int topLeftPixelCoordinateX;
+    int topLeftPixelCoordinateY;
+    int Layer;
+
+};
+
+
+
+layout(local_size_x = 128, local_size_y = 1, local_size_z = 1) in; // 128 threads per workgroup
+
+layout(rgba32f, binding = 0) uniform image2D renderImage;
+layout(std430, set = 0, binding = 1) coherent buffer uiToVulkan_t{
+    int numberOfUpdateBlocks; 
+    float pad[3];
+    updateBlock updateBlocks[];
+
+}uiToVulkan;
+
+
+layout(set=0, binding = 2) uniform sampler2DArray texture1[3];
+
+layout(push_constant) uniform uiToVulkanPushConstantData_t {
+    int testValue;
+    int updateBlocksFirstIndex;
+    int updateBlocksLastIndex;
+    float animTiming;
+    float animTiming2;
+    int currentFrame;
+} uiToVulkanPushConstantData;
+
+
+
+int binaryIntervalSearch(int searchedElement){
+    if (searchedElement < uiToVulkan.updateBlocks[uiToVulkanPushConstantData.updateBlocksFirstIndex].pixelIndex) {
+        // Return 0, the first interval, if the searched element is less than the bounds of the spline knots
+        return uiToVulkanPushConstantData.updateBlocksFirstIndex;
+    }
+    if(searchedElement >= uiToVulkan.updateBlocks[uiToVulkanPushConstantData.updateBlocksLastIndex].pixelIndex){
+        // Return sizeOfArray-2, the last interval, if the searched element greater than the bounds of the spline knots
+        return uiToVulkanPushConstantData.updateBlocksLastIndex;
+    }
+
+    int first = uiToVulkanPushConstantData.updateBlocksFirstIndex;
+    int last = uiToVulkanPushConstantData.updateBlocksLastIndex;
+
+    if(searchedElement == uiToVulkan.updateBlocks[last].pixelIndex){
+        return last - 1;
+    }
+    while(first <= last){
+        int middle = ((first +last) / 2);
+        if((uiToVulkan.updateBlocks[middle].pixelIndex <= searchedElement) && (uiToVulkan.updateBlocks[middle+1].pixelIndex > searchedElement)){
+            return middle;
+        }
+        else if(uiToVulkan.updateBlocks[middle].pixelIndex < searchedElement){
+            first = middle + 1;
+        }
+        else if (uiToVulkan.updateBlocks[middle].pixelIndex > searchedElement){
+            last = middle - 1;
+        }
+
+    }
+}
+
+
+vec2 sidePanelU(float inputU, float cutoff){
+    if(inputU < cutoff){
+        return vec2((inputU / cutoff), 0.0);
+    }
+    else{
+        return vec2(((inputU - cutoff) / (1 - cutoff)), 1.0);
+    }
+
+}
+
+void main(){
+
+    if(uiToVulkanPushConstantData.testValue == 1115){
+        vec4 color = vec4(1.0, 0.0, 0.0, 1.0);
+
+        ivec2 pixelCoordinate = ivec2(90,5);
+    
+        imageStore(renderImage, pixelCoordinate, color);
+    }
+
+    if(uiToVulkanPushConstantData.testValue == 99626){
+        vec4 color = vec4(999.0, 1.0, 0.0, 1.0);
+
+        ivec2 pixelCoordinate = ivec2(90,5);
+    
+        imageStore(renderImage, pixelCoordinate, color);
+        
+    }
+
+
+
+
+    if(uiToVulkan.numberOfUpdateBlocks == 0){
+        vec4 color = vec4(0.9, 0.6, 0.901, 1.0);
+
+        ivec2 pixelCoordinate = ivec2(10,5);
+    
+        imageStore(renderImage, pixelCoordinate, color);
+        return;
+    }
+
+
+    int totalNumberOfPixelsInUpdateBlockQueue =  uiToVulkan.updateBlocks[uiToVulkanPushConstantData.updateBlocksLastIndex].pixelIndex + (uiToVulkan.updateBlocks[uiToVulkanPushConstantData.updateBlocksLastIndex].width * uiToVulkan.updateBlocks[uiToVulkanPushConstantData.updateBlocksLastIndex].height);
+  
+    
+    if(int(gl_GlobalInvocationID.x) >= totalNumberOfPixelsInUpdateBlockQueue){
+        vec4 color = vec4(0.9, 0.0, 0.0, 1.0);
+
+        ivec2 pixelCoordinate = ivec2(2,5);
+    
+        imageStore(renderImage, pixelCoordinate, color);
+        return;
+    }
+
+
+
+    int i = binaryIntervalSearch(int(gl_GlobalInvocationID.x));
+    if((uiToVulkanPushConstantData.testValue == 99626) && (uiToVulkan.numberOfUpdateBlocks < 4) && (i < 0 || i > 2)){
+        vec4 color = vec4(1.0, 0.4, 0.0, 1.0);
+
+        ivec2 pixelCoordinate = ivec2(110,5);
+    
+        imageStore(renderImage, pixelCoordinate, color);
+        return;
+
+    }
+    int strideLength = int(gl_GlobalInvocationID.x) - uiToVulkan.updateBlocks[i].pixelIndex;
+    int pixelX = 0;
+    int pixelY = 0;
+
+
+    if(strideLength < uiToVulkan.updateBlocks[i].width){
+        pixelX = uiToVulkan.updateBlocks[i].topLeftPixelCoordinateX + strideLength;
+        pixelY = uiToVulkan.updateBlocks[i].topLeftPixelCoordinateY;
+    
+    }
+    else{
+        int quotient = strideLength / uiToVulkan.updateBlocks[i].width;
+        int remainder = strideLength % uiToVulkan.updateBlocks[i].width;
+        pixelX = uiToVulkan.updateBlocks[i].topLeftPixelCoordinateX + remainder;
+        pixelY = uiToVulkan.updateBlocks[i].topLeftPixelCoordinateY + quotient;
+        
+    }
+
+    float u = float((pixelX - uiToVulkan.updateBlocks[i].topLeftPixelCoordinateX)) / float(uiToVulkan.updateBlocks[i].width);
+    float v = float((pixelY - uiToVulkan.updateBlocks[i].topLeftPixelCoordinateY)) / float(uiToVulkan.updateBlocks[i].height);
+
+
+    
+
+   
+
+
+    vec4 color;
+    if(uiToVulkan.updateBlocks[i].ID == 1){
+        color = vec4(0.01, 0.01, 0.01, 1.0);
+    }
+    else if(uiToVulkan.updateBlocks[i].ID == 2){
+        //vec2 uv = vec2(u,v);
+        //color = texture(texture1,uv) * 1.0;
+        vec3 uvw = vec3(u,v,0.0);
+        color = texture(texture1[2],uvw);
+        //color = vec4(0.025, 0.0075, 0.015, 1.0);
+    }
+    else if(uiToVulkan.updateBlocks[i].ID == 3){
+        //color = vec4(0.0, 0.01, 0.901, 1.0);
+
+        vec2 modifiedU = sidePanelU(u,0.21);
+        //float modifiedV = mix(uiToVulkanPushConstantData.sidePanelVRangeStart,uiToVulkanPushConstantData.sidePanelVRangeEnd,v);
+        float sidePanelVRangeStart1 = 0.0 + 0.4375 * uiToVulkanPushConstantData.animTiming2;
+        float sidePanelVRangeEnd1 = 0.5625 + 0.4375 * uiToVulkanPushConstantData.animTiming2;
+
+        float sidePanelVRangeStart2 = 0.4375  - 0.4375 * uiToVulkanPushConstantData.animTiming2;
+        float sidePanelVRangeEnd2 = 1.0 - 0.4375 * uiToVulkanPushConstantData.animTiming2 * 2;
+
+        
+        
+        if(modifiedU.y == 0.0){
+            float modifiedV = mix(sidePanelVRangeStart1,sidePanelVRangeEnd1,v);
+            vec3 uvw = vec3(modifiedU.x,modifiedV,0.0);
+            color = texture(texture1[0],uvw) * mix(0.2,0.1,uvw.x);
+
+        }
+        else{
+            float modifiedV = mix(sidePanelVRangeStart2,sidePanelVRangeEnd2,v);
+            vec3 uvw1 = vec3(modifiedU.x,modifiedV,uiToVulkanPushConstantData.currentFrame);
+            vec3 uvw2 = vec3(modifiedU.x,modifiedV,uiToVulkanPushConstantData.currentFrame+1);
+            color = mix((texture(texture1[1],uvw1) * 0.9),(texture(texture1[1],uvw2) * 0.9),uiToVulkanPushConstantData.animTiming) ;
+
+        }
+        //color = vec4(0.0, 0.01, 0.901, 1.0);
+        
+    }
+    else if(uiToVulkan.updateBlocks[i].ID == 4){
+        color = vec4(0.0, 0.0, 0.001, 1.0);
+    }
+    
+
+    else if(uiToVulkan.updateBlocks[i].ID == 101){
+        color = vec4(0.9,0.1,0.1,1.0);
+    }
+    else if(uiToVulkan.updateBlocks[i].ID == 104){
+        color = vec4(0.95,0.05,0.1,1.0);
+    }
+    else if(uiToVulkan.updateBlocks[i].ID == 108){
+        color = vec4(0.975,0.0,0.05,1.0);
+    }
+    else if(uiToVulkan.updateBlocks[i].ID == 111){
+        color = vec4(1.0,0.0,0.0,1.0);
+    }
+    else if(uiToVulkan.updateBlocks[i].ID == 200001){
+        color = vec4(0.0,0.125,0.2125,1.0);
+    }
+    else if(uiToVulkan.updateBlocks[i].ID == 200002){
+        color = vec4(0.0,0.5,0.85,1.0);
+    }
+    else if(uiToVulkan.updateBlocks[i].ID == 200101){
+        color = vec4(0.075,0.2,0.31,1.0);
+    }
+    else if(uiToVulkan.updateBlocks[i].ID == 200102){ 
+        color = vec4(0.075,0.575,0.925,1.0);
+    }
+    else if(uiToVulkan.updateBlocks[i].ID == 200201){
+        color = vec4(0.075,0.2,0.31,1.0);
+    }
+    else if(uiToVulkan.updateBlocks[i].ID == 200202){ 
+        color = vec4(1.0,1.0,1.0,1.0);
+    }
+    else if(uiToVulkan.updateBlocks[i].ID == 100000){ //fileIcon0, Highlight = 0
+        color = vec4(0.5,0.5,0.5,0.0);
+    }
+    else if(uiToVulkan.updateBlocks[i].ID == 100001){ //fileIcon1, Highlight = 0
+        color = vec4(0.6,0.4,0.4,0.0);
+    }
+    else if(uiToVulkan.updateBlocks[i].ID == 101000){ //fileIcon0, Highlight = 1
+        color = vec4(0.9,0.0,0.0,1.0);
+    }
+    else if(uiToVulkan.updateBlocks[i].ID == 101001){ //fileIcon1, Highlight = 1
+        color = vec4(0.9,0.0,0.0,1.0);
+    }
+    else if(uiToVulkan.updateBlocks[i].ID == 102000){ //fileIcon0, Highlight = 2
+        color = vec4(0.3,0.3,0.9,1.0);
+    }
+    else if(uiToVulkan.updateBlocks[i].ID == 102001){ //fileIcon1, Highlight = 2
+        color = vec4(0.3,0.3,0.9,1.0);
+    }
+    else if(uiToVulkan.updateBlocks[i].ID == 103000){ //fileIcon0, Highlight = 3
+        color = vec4(0.1,0.1,0.4,1.0);
+    }
+    else if(uiToVulkan.updateBlocks[i].ID == 103001){ //fileIcon1, Highlight = 3
+        color = vec4(0.1,0.1,0.4,1.0);
+    }
+    
+    else if(uiToVulkan.updateBlocks[i].ID == -9999){
+        color = vec4(0.9, 0.9, 0.001, 1.0);
+    }
+    else{
+        color = vec4(0.5, 0.5, 0.501, 1.0);
+
+    }
+
+    ivec2 pixelCoordinate;
+
+    if(pixelX < 0 || pixelX > 1919 || pixelY < 0 || pixelY > 1079){
+        pixelCoordinate = ivec2(1900,5);
+        imageStore(renderImage, pixelCoordinate, color);
+        return;
+
+    }
+    else{
+        pixelCoordinate = ivec2(pixelX,pixelY);
+
+    }
+
+
+    
+
+    
+    if(uiToVulkan.updateBlocks[i].Layer > 0){
+        vec4 pixelFromLayerBeneath = imageLoad(renderImage, pixelCoordinate);
+        vec4 finalOutputColor = vec4(vec3(color) + ((1 - color.w) * vec3(pixelFromLayerBeneath)), color.w);
+        imageStore(renderImage, pixelCoordinate, finalOutputColor);
+
+    }
+    else{
+
+        imageStore(renderImage, pixelCoordinate, color);
+    }
+}
+

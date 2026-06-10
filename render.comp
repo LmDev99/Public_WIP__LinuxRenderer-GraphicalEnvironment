@@ -1,0 +1,1028 @@
+/*
+ * Copyright (c) 2026 Logan Mottern
+ * All rights reserved.
+ *
+ * This source code is provided for portfolio and review purposes only.
+ * No permission is granted to copy, modify, distribute, sublicense, or use
+ * this software except with the express written permission of the copyright owner.
+ */
+
+#version 430 core
+
+struct sceneGPUMemoryBlock{
+    float memoryStore[16]; //64 bytes
+};
+
+layout(local_size_x = 8, local_size_y = 16, local_size_z = 1) in; // 128 threads per workgroup
+
+
+layout(rgba32f, binding = 0) uniform  image2DArray renderImageArray;
+
+layout(std430, set = 0, binding = 1) coherent buffer sceneDataBuffer{
+    sceneGPUMemoryBlock sceneDataBlock[];
+    
+
+}sceneData;
+
+layout(set=0,binding = 2) uniform sampler2DArray textureArray;
+struct cameraData{
+    //float header[6] this should be ignored
+    float globalUp[3];
+    float cameraDirection[3];
+    float cameraPosition[3];
+    float cameraForward[3];
+    float cameraUp[3];
+    float cameraRight[3];
+    float screenSize[2];
+    float fov;
+    float quaternionValues[4]; //camera Orientation
+    float padding; //align to 8 bytes
+};
+
+layout(push_constant) uniform MainRenderPushConstants {
+    int renderStage;
+    int totalNumberOfObjects;
+    int numberOfNonEmissiveObjects;
+    int numberOfEmissiveObjects;
+
+   int materialsOffset;
+   cameraData mainCamera;
+} rendererPushConstants;
+shared sceneGPUMemoryBlock sharedMemoryCache[128]; //assuming 8KB of shared Memory
+
+
+
+
+float noiseScalars[8] = float[8](0.035, 0.011, 0.009, 0.0102, 0.0095, 0.0205, 0.0101, 0.00987);
+
+
+
+// Noise function
+float getNoise(vec2 fragCoord, vec2 seed) {
+    return fract(sin(dot(fragCoord + seed, vec2(12.9898, 78.233))) * 43758.5453);
+}
+
+
+// Returns true if hit.
+// Outputs tEnter/tExit (t range on ray) and hitNormal at entry (approx robust).
+vec3 rayIntersectBoxAABB(vec3 ro, vec3 rd, vec3 objectOrigin, vec3 halfExtents, out float tEnter, out float tExit, out vec3 hitNormal){
+    vec3 boxMin = objectOrigin - halfExtents;
+    vec3 boxMax = objectOrigin + halfExtents;
+
+    // If you want to avoid INF when rd component is 0, clamp invDir.
+    vec3 invDir = 1.0 / rd;
+
+    vec3 t0 = (boxMin - ro) * invDir;
+    vec3 t1 = (boxMax - ro) * invDir;
+
+    vec3 tmin3 = min(t0, t1);
+    vec3 tmax3 = max(t0, t1);
+
+    tEnter = max(tmin3.x, max(tmin3.y, tmin3.z));
+    tExit  = min(tmax3.x, min(tmax3.y, tmax3.z));
+    if((tExit < 0.0) || (tEnter > tExit)){
+        return vec3(0.0, 0.0, 0.0);
+    }
+
+    return vec3(1.0,tEnter,tExit);
+}
+
+/*
+vec4 boxSDF(vec3 objectOrigin, vec3 p, vec3 halfExtents ){
+    vec3 d = abs(p-objectOrigin) - halfExtents;
+    vec3 outsideDistance = max(d, vec3(0.0));
+    float sdfVal = min(max(q.x,max(q.y,q.z)),0.0) + length(outside);;
+    return vec4(sdfVal, outsideDistance.x, outsideDistance.y, outsideDistance.z);
+}
+*/
+
+// SDF for an axis-aligned cube centered at the origin with side length 'size'
+float cubeSDF(vec3 objectOrigin, vec3 p, float size) {
+    vec3 d = abs(p-objectOrigin) - vec3(size / 2.0);
+    //float result = min(max(d.x, max(d.y, d.z)), 0.0) + length(max(d, 0.0));
+    //return result + getNoise(vec2(p.x,p.z),vec2(objectOrigin.x,objectOrigin.y)) * 0.0002;
+    return min(max(d.x, max(d.y, d.z)), 0.0) + length(max(d, 0.0));
+}
+
+float sphereSDF(vec3 objectOrigin, vec3 p, float radius){
+     return length(p - objectOrigin) - radius;
+
+}
+
+vec3 getCubeFaceAndUV(int objectType, vec3 objectOrigin, vec3 p, float size) {
+    // Translate the hit point to the cube's local coordinate system
+    vec3 localHitPoint = p - objectOrigin;
+
+    // Scale by the cube size to normalize
+    //vec3 scaledHitPoint = localHitPoint / size;
+    vec3 scaledHitPoint = (p - objectOrigin) * (2.0 / size);
+
+    // Determine the dominant axis (largest absolute value)
+    vec3 absPoint = abs(scaledHitPoint);
+    float faceIndex = -1.0; // Initialize with an invalid index
+    vec2 uv;
+
+    if (absPoint.x >= absPoint.y && absPoint.x >= absPoint.z) {
+        // X face
+        if (scaledHitPoint.x > 0.0) {
+            faceIndex = 0.0; // Positive X
+        } else {
+            faceIndex = 1.0; // Negative X
+        }
+        uv = vec2(scaledHitPoint.z, scaledHitPoint.y); // Use Z and Y for UV
+    } else if (absPoint.y >= absPoint.x && absPoint.y >= absPoint.z) {
+        // Y face
+        if (scaledHitPoint.y > 0.0) {
+            faceIndex = 2.0; // Positive Y
+        } else {
+            faceIndex = 3.0; // Negative Y
+        }
+        uv = vec2(scaledHitPoint.x, scaledHitPoint.z); // Use X and Z for UV
+    } else {
+        // Z face
+        if (scaledHitPoint.z > 0.0) {
+            faceIndex = 4.0; // Positive Z
+        } else {
+            faceIndex = 5.0; // Negative Z
+        }
+        uv = vec2(scaledHitPoint.x, scaledHitPoint.y); // Use X and Y for UV
+    }
+
+    // Map UV from [-1, 1] to [0, 1]
+    uv = (uv + 1.0) * 0.5;
+
+    // Return face index and UV as a vec3
+    return vec3(faceIndex, uv);
+}
+
+
+vec3 getCubeNormal_centralDifference(int objectType,vec3 objectOrigin,vec3 p, float size){
+   
+    return normalize(vec3(cubeSDF(objectOrigin, p + vec3(0.0001,0.0,0.0), size) - cubeSDF(objectOrigin, p - vec3(0.0001,0.0,0.0), size),
+                   cubeSDF(objectOrigin, p + vec3(0.0,0.0001,0.0), size) - cubeSDF(objectOrigin, p - vec3(0.0,0.0001,0.0), size),
+                   cubeSDF(objectOrigin, p + vec3(0.0,0.0,0.0001), size) - cubeSDF(objectOrigin, p - vec3(0.0,0.0,0.0001), size))
+             );
+    
+}
+
+
+vec3 getObjectNormal(int objectType,vec3 objectOrigin,vec3 p, float size){
+    float epsilon = 0.001;
+    vec2 e1 = vec2(1.0, -1.0);
+    vec2 e2 = vec2(1.0, -1.0) * epsilon;
+    if(objectType == 0){
+        ///*
+        //return normalize(e1.xyy * cubeSDF(objectOrigin,p + e2.xyy, size) +
+        //                e1.yyx * cubeSDF(objectOrigin,p + e2.yyx, size) +
+        //                e1.yxy * cubeSDF(objectOrigin,p + e2.yxy, size) +
+        //                e1.xxx * cubeSDF(objectOrigin,p + e2.xxx, size));
+        //                */
+        return getCubeNormal_centralDifference(objectType,objectOrigin,p,size);
+    }
+    else if(objectType == 1){
+        return normalize(e1.xyy * sphereSDF(objectOrigin,p + e2.xyy, size) +
+                        e1.yyx * sphereSDF(objectOrigin,p + e2.yyx, size) +
+                        e1.yxy * sphereSDF(objectOrigin,p + e2.yxy, size) +
+                        e1.xxx * sphereSDF(objectOrigin,p + e2.xxx, size));
+
+    }
+    else{
+        return vec3(1.0,0.0,0.0);
+    }
+
+
+}
+
+
+
+float sceneObjectSDF(int objectType,vec3 objectOrigin, vec3 currentPosition){
+    
+
+    //0 is cube primitive
+    if(objectType == 0 || objectType == 1000){
+        return cubeSDF(objectOrigin,currentPosition,2);
+
+    }
+    else if(objectType == 1 || objectType == 1001){
+        return sphereSDF(objectOrigin,currentPosition,0.2);
+
+    }
+    
+    return 9999;
+
+}
+
+
+
+
+
+
+
+const float PI = 3.14159265;
+
+
+vec3 disneyDiffuse(vec3 albedo,float roughness,float nDotL,float nDotV,float nDotH){
+    
+
+    //compute Fd90
+    float Fd90 = 0.5 + 2.0 * roughness * nDotH * nDotH;
+
+    
+
+
+
+    return (albedo/PI)    *      (1.0 + (Fd90 - 1.0) * pow(1.0 - nDotL,5.0))      *    (1.0 + (Fd90 - 1.0) * pow(1.0 - nDotV,5.0));
+   
+}
+
+
+
+float normalDistributionFunction_GTR_gamma2(float nDotHSquared, float roughnessSquared){
+    
+
+    return roughnessSquared / (PI * pow((nDotHSquared * (roughnessSquared-1.0) + 1.0),2.0));
+
+}
+
+float geometryFunction_GGXSMITH_Aux(float nDotX, float roughness){
+    //Remap roughness
+    float adjustedRoughness = 0.5 + (roughness / 2.0);
+    float adjustedRoughnessSquared = pow(adjustedRoughness,2);
+
+   
+    
+    
+
+    float numerator = (2 * nDotX);
+    float denominator = nDotX + sqrt((adjustedRoughnessSquared + (1 - adjustedRoughnessSquared) * pow(nDotX,2)));
+    return numerator / denominator;
+
+    
+}
+float geometryFunction_GGXSMITH(float roughness, float nDotL, float nDotV){
+    return geometryFunction_GGXSMITH_Aux(nDotL,roughness) * geometryFunction_GGXSMITH_Aux(nDotV,roughness);
+
+}
+
+vec3 specularFresnel(float specularValue,float metallicValue, vec3 albedo,float vDotH){
+    vec3 F0_NonMetallic = vec3(0.08,0.08,0.08) * specularValue;
+    vec3 F0 = (1.0 - metallicValue) * F0_NonMetallic  + (metallicValue) * albedo;
+
+    
+    return F0 + (1.0-F0) * pow((1.0-vDotH),5.0);
+
+}
+
+
+vec3 disneySpecular(float roughness, float roughnessSquared, float specularValue,float metallicValue, vec3 albedo,float nDotL, float nDotV,float vDotH, float nDotHSquared){
+    
+
+    return (normalDistributionFunction_GTR_gamma2(nDotHSquared,roughnessSquared) * specularFresnel(specularValue,metallicValue,albedo,vDotH) * geometryFunction_GGXSMITH(roughness,nDotL,nDotV)) / (4 * (nDotL) * (nDotV));
+
+}
+
+//since clearcoat roughness is fixed around 0.1 to 0.25, we precompute the normalization constant with roughness 0.25, so roughnessSquared is 0.0625, and roughnessSquared-1 is -0.9375
+float normalDistributionFunction_GTR_gamma1(float nDotHSquared){
+    
+    
+
+    float normalizationConstant = 0.107210;
+    float denominator = (1 + ((-0.9375) * nDotHSquared));
+
+    return normalizationConstant / denominator;
+
+}
+
+float geometryFunction_GGXSMITH_Clearcoat(float nDotL, float nDotV){
+    
+    float roughness = 0.25;
+    float k = (roughness * roughness) / 2.0;
+
+    float G_V = nDotV / (nDotV * (1.0 - k) + k);
+    float G_L = nDotL / (nDotL * (1.0 - k) + k);
+    return G_V * G_L;
+
+}
+
+float specularFresnel_ClearCoat(float vDotH){
+    
+    float F0 = 0.04;
+    return F0 + (1.0 - F0) * pow(1.0 - vDotH,5.0);
+}
+
+float disneyClearCoat(float clearCoatGloss,float nDotL, float nDotV, float vDotH,float nDotHSquared){
+    
+
+    
+
+    float D = normalDistributionFunction_GTR_gamma1(nDotHSquared);
+    float G = geometryFunction_GGXSMITH_Clearcoat(nDotL,nDotV);
+    float F = specularFresnel_ClearCoat(vDotH);
+
+    float clearcoatBRDF = (D * F * G) / (4.0 * nDotL * nDotV + 0.001);
+
+    return clearcoatBRDF * clearCoatGloss * 0.25;
+    
+
+
+}
+
+vec3 disneySheen(vec3 albedo,vec3 halfVector, float sheen, float sheenTint, float vDotH){
+   
+    vec3 sheenColor = mix(vec3(1.0), albedo, sheenTint);
+    return sheen * sheenColor * pow((1.0 - vDotH),5.0);
+
+}
+
+
+vec3 disneyBRDF(vec2 pixelCoordinate,vec3 lightColor,vec3 lightVector, vec3 viewVector, vec3 normalVector, vec3 albedo, float roughness, float specularValue,float metallicValue, float clearCoatGloss, float sheen, float sheenTint, int sampleID){
+    
+    //note that for nDotL and nDotV we clamp starting just above 0, this is because we need to avoid division by 0 in disneySpecular() perhaps there is better solution
+    //but for now a simple clamp works
+
+    int flip = (int(pixelCoordinate.x) + int(pixelCoordinate.y)) & 1; // 0 or 1
+
+    int noiseScalarIndex =sampleID;
+    if(flip == 1){
+        noiseScalarIndex = 7 - sampleID; // reverse order on checkerboard pixels
+    }
+    
+
+    //compute dot products
+    float nDotL = dot(normalVector,lightVector) + (getNoise(pixelCoordinate+vec2(2*(1-2*(sampleID%2))*sampleID,2*(-1+2*(sampleID%2))*sampleID),vec2(0.123,0.2)+vec2(8*(-1+2*(sampleID%2))*sampleID,8*(1-2*(sampleID%2))*sampleID)) - 0.5) * (noiseScalars[noiseScalarIndex]);
+    nDotL = clamp(nDotL,0.00000000000001,1.0);
+    
+
+    float nDotV = dot(normalVector,viewVector) + (getNoise(pixelCoordinate+vec2(2*(1-2*(sampleID%2))*sampleID,2*(-1+2*(sampleID%2))*sampleID),vec2(0.366,0.4)+vec2(8*(-1+2*(sampleID%2))*sampleID,8*(1-2*(sampleID%2))*sampleID)) - 0.5) * (noiseScalars[noiseScalarIndex]);
+    nDotV = clamp(nDotV,0.00000000000001,1.0);
+    
+
+    //compute microfacet half-viewVector
+    vec3 halfVector = normalize(lightVector+viewVector);
+
+    float nDotH = dot(normalVector,halfVector) + (getNoise(pixelCoordinate+vec2(2*(1-2*(sampleID%2))*sampleID,2*(-1+2*(sampleID%2))*sampleID),vec2(0.435,0.6)+vec2(8*(-1+2*(sampleID%2))*sampleID,8*(1-2*(sampleID%2))*sampleID)) - 0.5) * (noiseScalars[noiseScalarIndex]);
+    nDotH = clamp(nDotH,0.0,1.0);
+    
+    float nDotHSquared = nDotH * nDotH;
+
+
+    float vDotH = dot(viewVector,halfVector) + (getNoise(pixelCoordinate+vec2(2*(1-2*(sampleID%2))*sampleID,2*(-1+2*(sampleID%2))*sampleID),vec2(0.7277,0.8)+vec2(3*(1+2*(sampleID%2))*sampleID,8*(1-2*(sampleID%2))*sampleID)) - 0.5) * (noiseScalars[noiseScalarIndex]);
+    vDotH = clamp(vDotH,0.0,1.0);
+    
+    float roughnessSquared = roughness * roughness;
+    
+
+
+
+    //compute diffuse
+   
+    vec3 diffuseBRDF = disneyDiffuse(albedo,roughness,nDotL,nDotV,nDotH);
+    vec3 specularBRDF = disneySpecular(roughness,roughnessSquared,specularValue,metallicValue,albedo,nDotL,nDotV,vDotH,nDotHSquared);
+    float clearcoatBRDF = disneyClearCoat(clearCoatGloss,nDotL,nDotV,vDotH,nDotHSquared);
+    vec3 sheenBRDF = disneySheen(albedo,halfVector,sheen,sheenTint,vDotH);
+
+    vec3 totalBRDF = ((1 - metallicValue) * diffuseBRDF) + specularBRDF + sheenBRDF + vec3(clearcoatBRDF);
+    //vec3 totalBRDF = diffuseBRDF;
+
+    return totalBRDF * lightColor * nDotL;
+    //return totalBRDF * lightColor;
+}
+
+
+//AKA shadow/light ray
+//objectIndex is the index of the emissive object
+float shadingRay(int objectIndex, vec3 rayOrigin, vec3 rayDirection,float distanceToLight){
+    float distanceTraveled = 0.001;
+    float maxDistance = 1000.0;
+
+    float lastDistance[10];
+    bool skipObject[10];
+    for(int i =0 ; i < 10; i++){
+        skipObject[i] = false;
+    }
+    for(int i = 0; i < 64; i++){
+        if(distanceTraveled >= distanceToLight){
+            break;
+        }
+        
+        vec3 currentPosition = rayOrigin + rayDirection * distanceTraveled;
+        float minimumDistanceFromScene = 9999;
+        int currentClosestObjectIndex = -1;
+        int currentObjectType = -1;
+        vec3 currentObjectPosition;
+        for(int j = 0; j < rendererPushConstants.totalNumberOfObjects; j++){
+            if(skipObject[j] == false){
+                currentObjectType = floatBitsToInt(sharedMemoryCache[j].memoryStore[0]);
+                currentObjectPosition = vec3(sharedMemoryCache[j].memoryStore[2], sharedMemoryCache[j].memoryStore[3], sharedMemoryCache[j].memoryStore[4]);
+                
+                if(j == objectIndex){
+                    continue; //ignore taking the sdf of the emissive object
+                }
+                float minimumDistanceFromObject = sceneObjectSDF(currentObjectType,currentObjectPosition,currentPosition);
+                if((i > 0) && (minimumDistanceFromObject > lastDistance[j])){
+                    skipObject[j] = true;
+                }
+                if(minimumDistanceFromObject < minimumDistanceFromScene){
+                    minimumDistanceFromScene = minimumDistanceFromObject;
+                    currentClosestObjectIndex = j;
+                }
+                lastDistance[j] = minimumDistanceFromObject;
+            }
+        }
+    
+        
+        if(minimumDistanceFromScene < 0.001){
+            return 0.0;
+        }
+        distanceTraveled = distanceTraveled + minimumDistanceFromScene;
+        
+
+    }
+    return 1.0;
+}
+
+
+
+
+/*
+
+
+//All 
+
+//returns a vec4, the first component indicates: 0 = the input value was not a lowest 3, 1 the input value was the 3rd lowest, ..., 3 the input value was the lowest value
+//                the second component is the third lowest value, the third component is the second lowest value, the fourth component is the lowest values
+vec4 updateLowestThreeDistances(vec3 inputLowestThreeDistances, float inputMinimumDistance){
+    if(inputMinimumDistance < inputLowestThreeDistances[3]){ //lower than lowest value
+        inputLowestThreeDistances[1] = inputLowestThreeDistances[2];
+        inputLowestThreeDistances[2] = inputLowestThreeDistances[3];
+        inputLowestThreeDistances[3] = inputMinimumDistance;
+        return vec4(3.0,inputLowestThreeDistances);
+    }
+    else if (inputMinimumDistance < inputLowestThreeDistances[2]){//lower than second lowest value
+        inputLowestThreeDistances[1] = inputLowestThreeDistances[2]
+        inputLowestThreeDistances[2] = inputMinimumDistance;
+        return vec4(2.0,inputLowestThreeDistances);
+    }
+    else if (inputMinimumDistance < inputLowestThreeDistances[1]){//lower than third lowest value
+        inputLowestThreeDistances[1] = inputMinimumDistance;
+        return vec4(1.0,inputLowestThreeDistances);
+    }
+    else{
+        return vec4(0.0,inputLowestThreeDistances); //was not lower than any of the three lowest
+    }
+
+}
+
+vec3 updateClosestThreeObjectIndices(vec3 inputClosestThreeObjects, int resultFromUpdateLowestThreeDistances,int inputObjectIndice){
+    if(resultFromUpdateLowestThreeDistances == 3){ //lower than lowest value
+        inputLowestThreeDistances[1] = inputLowestThreeDistances[2];
+        inputLowestThreeDistances[2] = inputLowestThreeDistances[3];
+        inputLowestThreeDistances[3] = inputObjectIndice;
+        return vec4(3.0,inputLowestThreeDistances);
+    }
+    else if (resultFromUpdateLowestThreeDistances == 2){//lower than second lowest value
+        inputLowestThreeDistances[1] = inputLowestThreeDistances[2]
+        inputLowestThreeDistances[2] = inputObjectIndice;
+        return vec4(2.0,inputLowestThreeDistances);
+    }
+    else if (resultFromUpdateLowestThreeDistances == 1){//lower than third lowest value
+        inputClosestThreeObjects[1] = inputObjectIndice;
+        return vec4(1.0,inputLowestThreeDistances);
+    }
+    else{
+        return inputClosestThreeObjects; //was not lower than any of the three lowest
+    }
+
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+struct RayResult{
+    float distanceTravelled;
+    int hit;  // -2 is no hit and all objects were found to be skipped ,-1 is no hit, 0 is raw sdf, 1 is primary composite volume,
+              //  2 is a secondary encapsulating volume that requests precision ray marching, 3 is a primary encapsulating volume that requests precision ray marching
+              //  4 is a secondary encapsulating volume that request ray intersection, 5 is a primary encapsulating volume that requests ray intersection
+    float hitPosition[3];
+    int objectHitIndex;
+    int objectHitNumberOfChldren
+    int objectHitType
+}
+
+
+int markSkip(int objectBufferIndex, int numberOfChildren){
+
+    if(objectBufferIndex > skipBoundary){return -1;}
+
+    int skipBuffer_WordIndex;
+    int skipBuffer_BitIndex;
+
+    int amountPastBoundary = ((objectBufferIndex - skipboundary) > 0)) * (objectBufferIndex - skipboundary);
+
+   currentNumberOfCulledObjects = currentNumberOfCulledObjects + 1 + objectBuffer[currentPrimaryCompositeBoundingVolumeIndex].numberOfChildren - amountPastBoundary;
+
+}
+*/
+
+
+/*
+int traverseRay(){
+
+    RayResult coarseRayMarchResult;
+    RayResult precisionRayMarchResult;
+
+
+    float distanceTravelled = 0.0;
+    float rayDistanceTravelledAtPrimaryBoundingVolumeEntry
+    int currentPrimaryCompositeBoundingVolumeIndex = 0;
+    For(int numberOfDepthChanges = 0; numberOfDepthChanges < 6){
+
+        For (i=0;i<4;i++){
+
+            //first we do 6 iterations of raymarching against bounding volumes
+            coarseRayMarchResult.hit = -1;    
+            coarseRayMarchResult = RayMarch(rayOrigin,rayDirection,distanceTravelled,maxDistanceToTravel,raymarchiterationlimit_MINIMAL,ObjectBufferStartIndex,ObjectBufferEndIndex,cullingState);
+            distanceTravelled = coarseRayMarchResult.distanceTravelled;
+
+            
+            if(coarseRayMarchResult.hit > 3){  //hit encapsulating volume (primary or secondary it doesnt matter) that requests ray intersection against raw geometry
+                precisionRayIntersection = RayIntersect(rayOrigin, rayDirection,coarseRayMarchResult.objectHitIndex,coarseRayMarchResult.numberOfChildren);
+                if(precisionRayIntersection.hit == 0){
+                }
+                else{
+                    if(objectType > 1100 && objectType < 1200){rayTraverseResult.passedBySelectedObject = 1}
+                    markSkip(coarseRayMarchResult.objectHitIndex, )
+                }
+
+            }
+        
+
+            else if(coarseRayMarchResult.hit > 1){ //hit encapsulating volume (primary or secondary it doesnt matter) that requests ray marching against raw sdf
+        
+                precisionRayMarchResult = RayMarch(rayOrigin,rayDirection,distanceTravelled,raymarchiterationlimit_PRECISION,ObjectBufferStartIndex,ObjectBufferEndIndex) //cullingStatePassedInImplictlyThroughGlobalVariable
+                if(precisionRayMarchResult.hit == 0){rayTraverseResult = 0; return rayTraverseResult;}
+                else{ //implicitly this is precisionRayMarchResult.hit == -1, and we assume the ray marched out of the encapsulating bounding volume
+                    if(objectType > 1100 && objectType < 1200 && closestRecordedDistanceToSDF < threshold){{rayTraverseResult.passedBySelectedObject = 1}}
+                    //markSkip(coarseRayMarchResult.objectHitIndex, ) 
+                    coarseRayMarchResult = -1;
+                    continue;
+                } 
+                
+            }
+
+
+            else if(coarseRayMarchResult.hit == 1){ //hit a primary composite volume, so we move down a depth
+                //if we hit a primary composite whose index is 4 and it has two children, then 5 and 6 are their indices, so start index is 5 and end index is 6
+                objectBufferStartIndex = coarseRayMarchResult.objectHitIndex + 1;
+                objectBufferEndIndex = coarseRayMarchResult.objectHitIndex + objectBuffer[coarseRayMarchResult.objectHitIndex].numberOfChildren
+                
+                break;
+            }
+
+        
+            //the ray has marched out of the primary composite volume it was inside of
+            if(distanceTravelled > objectBuffer[objustBufferStartIndex-1].diagonalOfBoundingVolume){
+                markSkip(objustBufferStartIndex-1,objectBuffer[objustBufferStartIndex-1].numberOfChildren)
+                ObjectBufferStartIndex = objectBuffer[ObjectBufferStartIndex-1].parentBoundingVolumeIndex
+                ObjectBufferEndIndex = ObjectBufferStartIndex + ObjectBuffer[ObjectBufferStartIndex].numberOfChildren
+                continue;
+            }
+
+
+
+            //Then we ray intersect with the 3 closest bounding volumes
+            coarseRayIntersectResult.hit = -1;
+            coarseRayIntersectResult = RayIntersect(rayOrigin,rayDirection); //closest three objects passed in implicitly
+            if(coarseRayIntersectResult.hit > 3){ //hit encapsulating volume (primary or secondary it doesnt matter) that requests ray intersection against raw geometry
+                precisionRayIntersectionResult = RayIntersect(rayOrigin, rayDirection,objectIndex,coarseRayMarchResult.objectHitIndex,coarseRayMarchResult.numberOfChildren);
+                if(precisionRayIntersectionResult.hit == 0){return precisionRayIntersectionResult;}
+                else{
+                    markSkip(coarseRayIntersectResult.objectHitIndex)
+                }
+                
+            }
+            if(coarseRayIntersectResult.hit > 1){ //hit encapsulating volume (primary or secondary it doesnt matter) so now ray march against raw sdf
+                precisionRayMarchResult = RayMarch(rayOrigin,rayDirection,distanceTravelled,raymarchiterationlimit_PRECISION,ObjectBufferStartIndex,ObjectBufferEndIndex) //cullingStatePassedInImplictlyThroughGlobalVariable
+                if(precisionRayMarchResult.hit == 0){return precisionRayMarchResult;}
+                else{ //implicitly this is precisionRayMarchResult.hit == -1
+                    if(){
+                    }
+                    markSkip(ObjectIndex, coarseRayIntersectResult.objectHitIndex)
+                    rayIntesrsectResult = -1;
+                    continue;
+                } 
+            }
+            else if(coarseRayIntersectResult.hit == 1){ //hit primary composite volume
+                objectBufferStartIndex = rayIntersectResul.objectHitIndex + 1;
+                objectBufferEndIndex = rayIntersectResul.objectHitIndex + objectBuffer[coarseRayMarchResult.objectHitIndex].numberOfChildren
+                break;
+            }
+
+
+            
+        }
+
+        
+
+    }
+}
+
+*/
+
+
+
+
+
+
+
+/*
+vec4 reflectRay(vec3 rayOrigin, vec3 rayDirection){
+    
+
+}
+
+*/
+
+
+
+vec4 rayMarch(vec2 pixelCoordinate, vec3 rayOrigin, vec3 rayDirection,float startingDistance,int sampleID) {
+    
+    float distanceTravelled = startingDistance*0.999;
+    float maxDistance = 1000.0;
+    float epsilon = 0.001;
+    vec3 currentPosition;
+
+    int primaryHitClosestObjectIndex = -1;
+    int primaryHitClosestObjectType = -1;
+    vec3 primaryHitClosestObjectPosition;
+
+    float lastDistance[10];
+    bool skipObject[10];
+    for(int i =0 ; i < 10; i++){
+        skipObject[i] = false;
+    }
+
+    int rayMarchIterationLimit = 256;
+    if(sampleID < 2){
+        rayMarchIterationLimit = 1256;
+    }
+
+    //find where the primary ray hits
+    int i = 0;
+    for (i; i < rayMarchIterationLimit; ++i) {
+        currentPosition = rayOrigin + rayDirection * distanceTravelled;
+
+        float minimumDistanceFromScene = 9999;
+        int currentClosestObjectIndex = -1;
+        int currentObjectType = -1;
+        vec3 currentObjectPosition;
+        int j = 0;
+        
+        for(j; j < rendererPushConstants.totalNumberOfObjects; j++){
+            if(skipObject[j] == false){
+                currentObjectType = floatBitsToInt(sharedMemoryCache[j].memoryStore[0]); //0;
+                currentObjectPosition = vec3(sharedMemoryCache[j].memoryStore[2], sharedMemoryCache[j].memoryStore[3], sharedMemoryCache[j].memoryStore[4]); //positions[j];
+                
+                float minimumDistanceFromObject = sceneObjectSDF(currentObjectType,currentObjectPosition,currentPosition);
+                if((i > 0) && ( minimumDistanceFromObject > lastDistance[j])){
+                    skipObject[j] = true;
+                } 
+               
+                if(minimumDistanceFromObject < minimumDistanceFromScene){
+                    minimumDistanceFromScene = minimumDistanceFromObject;
+                    currentClosestObjectIndex = j;
+                }
+                
+                lastDistance[j] = minimumDistanceFromObject;
+            }
+        }
+
+        distanceTravelled = distanceTravelled + minimumDistanceFromScene;
+
+        if (distanceTravelled > maxDistance || minimumDistanceFromScene < epsilon) {
+			if(distanceTravelled > maxDistance){
+				return vec4(0.0,0.0,0.0,distanceTravelled);
+			}
+            else{
+                primaryHitClosestObjectIndex = currentClosestObjectIndex;
+                primaryHitClosestObjectType = floatBitsToInt(sharedMemoryCache[primaryHitClosestObjectIndex].memoryStore[0]); //0;
+                primaryHitClosestObjectPosition = vec3(sharedMemoryCache[primaryHitClosestObjectIndex].memoryStore[2], sharedMemoryCache[primaryHitClosestObjectIndex].memoryStore[3], sharedMemoryCache[primaryHitClosestObjectIndex].memoryStore[4]); //positions[primaryHitClosestObjectIndex];
+            
+            }
+            
+            break;
+        }
+    }
+
+    if(primaryHitClosestObjectIndex == -1){
+        return vec4(0.0,0.0,0.0,distanceTravelled);
+    }
+
+
+
+    //All this branch uses from above code is primaryHitClosestObjectIndex and distanceTravelled
+    //the ray hit an emissive surface
+    if(primaryHitClosestObjectIndex >= rendererPushConstants.numberOfNonEmissiveObjects){
+        
+        int emissiveMaterialIndex = floatBitsToInt(sceneData.sceneDataBlock[primaryHitClosestObjectIndex].memoryStore[1]); //this is the closest Objects material index
+        vec3 lightColor = vec3(sceneData.sceneDataBlock[rendererPushConstants.materialsOffset - emissiveMaterialIndex].memoryStore[0], sceneData.sceneDataBlock[rendererPushConstants.materialsOffset - emissiveMaterialIndex].memoryStore[1], sceneData.sceneDataBlock[rendererPushConstants.materialsOffset - emissiveMaterialIndex].memoryStore[2]);
+        
+        return vec4(lightColor,distanceTravelled);
+
+    }
+
+
+    //All this branch uses from above code is primaryHitClosestObjectIndex and distanceTravelled
+    //the ray hit a non-emissive surface
+    else{
+        
+
+        vec3 normalVector = getObjectNormal(primaryHitClosestObjectType,primaryHitClosestObjectPosition,currentPosition,2);
+        
+
+        // Set material properties (example values)
+        int materialIndex = floatBitsToInt(sceneData.sceneDataBlock[primaryHitClosestObjectIndex].memoryStore[1]); //this is the closest Objects material index
+        
+
+        
+        vec3 albedo = vec3(sceneData.sceneDataBlock[rendererPushConstants.materialsOffset - materialIndex].memoryStore[0], sceneData.sceneDataBlock[rendererPushConstants.materialsOffset - materialIndex].memoryStore[1], sceneData.sceneDataBlock[rendererPushConstants.materialsOffset - materialIndex].memoryStore[2]);
+        //return albedo;
+        float metallicValue= sceneData.sceneDataBlock[rendererPushConstants.materialsOffset - materialIndex].memoryStore[4];
+        float specularValue = sceneData.sceneDataBlock[rendererPushConstants.materialsOffset - materialIndex].memoryStore[5];
+        //specularTint
+        float roughness = sceneData.sceneDataBlock[rendererPushConstants.materialsOffset - materialIndex].memoryStore[7];
+        //anistropic
+        float sheen = sceneData.sceneDataBlock[rendererPushConstants.materialsOffset - materialIndex].memoryStore[9];
+        float sheenTint = sceneData.sceneDataBlock[rendererPushConstants.materialsOffset - materialIndex].memoryStore[10];
+        float clearCoatGloss = sceneData.sceneDataBlock[rendererPushConstants.materialsOffset - materialIndex].memoryStore[11];
+
+        vec3 faceanduv= getCubeFaceAndUV(0, primaryHitClosestObjectPosition, currentPosition, 2);
+        vec3 uvw = vec3(faceanduv.y,faceanduv.z,0.0);
+        vec4 albedo1 = texture(textureArray,uvw) * 1.0;
+        //return vec4(albedo1.x,albedo1.y,albedo1.z,distanceTravelled); 
+
+        //return abs(normalVector);
+        vec3 totalColor = vec3(0,0,0);
+        //for(int i = 0; i < 2; i++){
+        //    vec3 reflectRayOrigin;
+        //    vec3 reflectRayDirection;
+        //    totalColor = totalColor + reflectRay(reflectRayOrigin,reflectRayDirection);
+        //}
+        // Compute the light vector and view vector
+        for(int i = 0; i < rendererPushConstants.numberOfEmissiveObjects; i++){
+          
+
+        
+            vec3 lightPosition = vec3(sceneData.sceneDataBlock[rendererPushConstants.numberOfNonEmissiveObjects + i].memoryStore[2], sceneData.sceneDataBlock[rendererPushConstants.numberOfNonEmissiveObjects + i].memoryStore[3], sceneData.sceneDataBlock[rendererPushConstants.numberOfNonEmissiveObjects + i].memoryStore[4]);
+            int emissiveObjectMaterialIndex = floatBitsToInt(sceneData.sceneDataBlock[rendererPushConstants.numberOfNonEmissiveObjects + i].memoryStore[1]);
+            vec3 lightColor = vec3(sceneData.sceneDataBlock[rendererPushConstants.materialsOffset - emissiveObjectMaterialIndex].memoryStore[0],sceneData.sceneDataBlock[rendererPushConstants.materialsOffset - emissiveObjectMaterialIndex].memoryStore[1],sceneData.sceneDataBlock[rendererPushConstants.materialsOffset - emissiveObjectMaterialIndex].memoryStore[2]);
+
+            vec3 lightVector = normalize(lightPosition - currentPosition);
+            vec3 viewVector = normalize(rayOrigin - currentPosition);
+
+            // Set material properties (example values)
+            //int materialIndex = floatBitsToInt(sceneData.sceneDataBlock[primaryHitClosestObjectIndex].memoryStore[1]); //this is the closest Objects material index
+            
+
+            
+            
+            
+            // Compute the distance to the light
+            float distanceToLight = length(lightPosition - currentPosition); 
+
+            // Perform shadow ray marching with clamped steps
+            float isInLight = shadingRay(rendererPushConstants.numberOfNonEmissiveObjects + i,currentPosition + normalVector * epsilon, lightVector, distanceToLight);
+            
+            
+            if(isInLight == 1.0){
+                // Compute the color using Disney BRDF
+                //vec3 currentColor = disneyBRDF(pixelCoordinate,lightColor, lightVector, viewVector, normalVector, vec3(albedo1.x,albedo1.y,albedo1.z), roughness, specularValue, metallicValue, clearCoatGloss, sheen, sheenTint,sampleID) / ((distanceToLight * distanceToLight) + getNoise(pixelCoordinate,vec2(7,6)) * 0.01);
+                vec3 currentColor = disneyBRDF(pixelCoordinate,lightColor, lightVector, viewVector, normalVector, albedo, roughness, specularValue, metallicValue, clearCoatGloss, sheen, sheenTint,sampleID) / ((distanceToLight * distanceToLight) + getNoise(pixelCoordinate,vec2(7,6)) * 0.01);
+                if(i==0){
+                  
+                    totalColor = totalColor + currentColor;
+                }
+                if(i==1){
+                
+                   
+                    totalColor = totalColor + currentColor;
+                }
+            }
+              
+
+        }
+        
+        return vec4(totalColor,distanceTravelled); //+ vec3(getNoise(pixelCoordinate,vec2(9,3)),getNoise(pixelCoordinate,vec2(4,5)),getNoise(pixelCoordinate,vec2(6,1))) * 0.001;
+    }
+}
+
+
+
+void main() {
+    ivec2 pixelCoordinate = ivec2(gl_GlobalInvocationID.xy); // Replace with your window size
+    
+    if (pixelCoordinate.x >= rendererPushConstants.mainCamera.screenSize[0] || pixelCoordinate.y >= rendererPushConstants.mainCamera.screenSize[1]) {
+        return;
+    }  
+
+
+
+    if(rendererPushConstants.renderStage == 0){
+       
+
+
+        //The shader will start by loading in all global memory (in parallel) that needs to be cached in shared memory
+        //assuming 8KB of shared Memory
+        
+    uint numberOfGlobalMemoryAccessesPerThreadInWorkgroup = 1024 / (gl_WorkGroupSize.x * gl_WorkGroupSize.y); //expects 8 x 16 x 1 workgroup sizes
+    
+
+    uint localThreadId = gl_LocalInvocationID.x + gl_LocalInvocationID.y * gl_WorkGroupSize.x;
+    
+   
+    //uint sceneDataBlockIndex = (localThreadId * numberOfGlobalMemoryAccessesPerThreadInWorkgroup) / numberOfGlobalMemoryAccessesPerThreadInWorkgroup;
+    uint sceneDataBlockIndex = localThreadId;
+   /**/
+
+    
+        
+        sharedMemoryCache[sceneDataBlockIndex].memoryStore[0] = sceneData.sceneDataBlock[sceneDataBlockIndex].memoryStore[0];
+        sharedMemoryCache[sceneDataBlockIndex].memoryStore[1] = sceneData.sceneDataBlock[sceneDataBlockIndex].memoryStore[1];
+        sharedMemoryCache[sceneDataBlockIndex].memoryStore[2] = sceneData.sceneDataBlock[sceneDataBlockIndex].memoryStore[2];
+        sharedMemoryCache[sceneDataBlockIndex].memoryStore[3] = sceneData.sceneDataBlock[sceneDataBlockIndex].memoryStore[3];
+        
+        sharedMemoryCache[sceneDataBlockIndex].memoryStore[4] = sceneData.sceneDataBlock[sceneDataBlockIndex].memoryStore[4];
+        sharedMemoryCache[sceneDataBlockIndex].memoryStore[5] = sceneData.sceneDataBlock[sceneDataBlockIndex].memoryStore[5];
+        sharedMemoryCache[sceneDataBlockIndex].memoryStore[6] = sceneData.sceneDataBlock[sceneDataBlockIndex].memoryStore[6];
+        sharedMemoryCache[sceneDataBlockIndex].memoryStore[7] = sceneData.sceneDataBlock[sceneDataBlockIndex].memoryStore[7];
+    
+    
+        sharedMemoryCache[sceneDataBlockIndex].memoryStore[8] = sceneData.sceneDataBlock[sceneDataBlockIndex].memoryStore[8];
+        sharedMemoryCache[sceneDataBlockIndex].memoryStore[9] = sceneData.sceneDataBlock[sceneDataBlockIndex].memoryStore[9];
+        sharedMemoryCache[sceneDataBlockIndex].memoryStore[10] = sceneData.sceneDataBlock[sceneDataBlockIndex].memoryStore[10];
+        sharedMemoryCache[sceneDataBlockIndex].memoryStore[11] = sceneData.sceneDataBlock[sceneDataBlockIndex].memoryStore[11];
+        
+        sharedMemoryCache[sceneDataBlockIndex].memoryStore[12] = sceneData.sceneDataBlock[sceneDataBlockIndex].memoryStore[12];
+        sharedMemoryCache[sceneDataBlockIndex].memoryStore[13] = sceneData.sceneDataBlock[sceneDataBlockIndex].memoryStore[13];
+        sharedMemoryCache[sceneDataBlockIndex].memoryStore[14] = sceneData.sceneDataBlock[sceneDataBlockIndex].memoryStore[14];
+        sharedMemoryCache[sceneDataBlockIndex].memoryStore[15] = sceneData.sceneDataBlock[sceneDataBlockIndex].memoryStore[15];
+    
+
+
+        barrier();
+
+        
+        float debugValue = 0;
+        for(int i =0; i <128; i++){
+            debugValue = debugValue + sharedMemoryCache[i].memoryStore[0];
+            debugValue = debugValue + sharedMemoryCache[i].memoryStore[1];
+            debugValue = debugValue + sharedMemoryCache[i].memoryStore[2];
+            debugValue = debugValue + sharedMemoryCache[i].memoryStore[3];
+            debugValue = debugValue + sharedMemoryCache[i].memoryStore[4];
+            debugValue = debugValue + sharedMemoryCache[i].memoryStore[5];
+            debugValue = debugValue + sharedMemoryCache[i].memoryStore[6];
+            debugValue = debugValue + sharedMemoryCache[i].memoryStore[7];
+            debugValue = debugValue + sharedMemoryCache[i].memoryStore[8];
+            debugValue = debugValue + sharedMemoryCache[i].memoryStore[9];
+            debugValue = debugValue + sharedMemoryCache[i].memoryStore[13];
+            
+        }
+        if(debugValue > 444){
+            imageStore(renderImageArray, ivec3(950,3,0), vec4(1.0,0.0,1.0,1.0));
+        }
+        if(sharedMemoryCache[1].memoryStore[3] == -3){
+            imageStore(renderImageArray, ivec3(750,3,0), vec4(1.0,1.0,1.0,1.0));
+
+        }
+        
+
+      
+
+        
+       
+
+
+
+        // Define the sample offsets for 8x MSAA
+        vec2 sampleOffsets[8] = vec2[](
+            vec2(-0.25, 0.25) + vec2(getNoise(pixelCoordinate,vec2(24,99)),getNoise(pixelCoordinate,vec2(25,-64))) * 0.01,   // Top left
+            vec2( 0.25, -0.25) + vec2(getNoise(pixelCoordinate,vec2(997,442)),getNoise(pixelCoordinate,vec2(43,-222))) * 0.01 ,   // Bottom right
+            vec2(-0.375, -0.125) + vec2(getNoise(pixelCoordinate,vec2(9763,1256)),getNoise(pixelCoordinate,vec2(3,8))) * 0.01, // (original index 0)
+            vec2( 0.125, -0.375) + vec2(getNoise(pixelCoordinate,vec2(-3,-43)),getNoise(pixelCoordinate,vec2(48,1999))) * 0.01, // (original index 1)
+            vec2( 0.375,  0.125) + vec2(getNoise(pixelCoordinate,vec2(72,-1694)),getNoise(pixelCoordinate,vec2(1,22))) * 0.01, // (original index 2)
+            vec2(-0.125,  0.375) + vec2(getNoise(pixelCoordinate,vec2(475,626)),getNoise(pixelCoordinate,vec2(652,867))) * 0.01, // (original index 3)
+            vec2(-0.25, -0.25) + vec2(getNoise(pixelCoordinate,vec2(5309,923)),getNoise(pixelCoordinate,vec2(444,9035))) * 0.01,   // (original index 4)
+            vec2( 0.25,  0.25) + vec2(getNoise(pixelCoordinate,vec2(12,-13)),getNoise(pixelCoordinate,vec2(-424,808))) * 0.01    // (original index 6)
+        );
+
+        float firstTwoSampleDistances[2];
+        float startingDistanceOptimization = 0.0;
+
+        // Get the subsample offset for the current sampleID
+
+
+        for(int sampleID = 0; sampleID < 8; sampleID++){
+            vec2 sampleOffset = sampleOffsets[sampleID];
+
+            // Adjust the pixelCoordinate by the sample offset
+            vec2 uv = (vec2(pixelCoordinate) + sampleOffset + 0.5) / vec2(rendererPushConstants.mainCamera.screenSize[0], rendererPushConstants.mainCamera.screenSize[1]);
+
+            
+            
+            uv = uv * 2.0 - 1.0;
+            uv.x *= rendererPushConstants.mainCamera.screenSize[0] / rendererPushConstants.mainCamera.screenSize[1]; // Replace with your window aspect ratio
+        
+            
+            float fov = 60.0;
+            float focalLength = 1.0 / tan(radians(fov) / 2.0);
+
+        
+
+            
+            
+
+
+            // Calculate ray origin and direction
+            vec3 rayOrigin = vec3(rendererPushConstants.mainCamera.cameraPosition[0],rendererPushConstants.mainCamera.cameraPosition[1],rendererPushConstants.mainCamera.cameraPosition[2]);
+            vec3 rayDirection = normalize(vec3(uv.x, focalLength, -uv.y));
+            rayDirection = mat3(vec3(rendererPushConstants.mainCamera.cameraRight[0],rendererPushConstants.mainCamera.cameraRight[1],rendererPushConstants.mainCamera.cameraRight[2]), vec3(rendererPushConstants.mainCamera.cameraForward[0],rendererPushConstants.mainCamera.cameraForward[1],rendererPushConstants.mainCamera.cameraForward[2]), vec3(rendererPushConstants.mainCamera.cameraUp[0],rendererPushConstants.mainCamera.cameraUp[1],rendererPushConstants.mainCamera.cameraUp[2])) * rayDirection;
+
+
+            // Perform ray marching
+            vec4 rayMarchResult;
+            vec3 primaryRayColor;
+            if(sampleID < 2){
+                rayMarchResult = rayMarch(pixelCoordinate,rayOrigin, rayDirection,0.0,sampleID);
+                firstTwoSampleDistances[sampleID] = rayMarchResult.w;
+                primaryRayColor = vec3(rayMarchResult.x,rayMarchResult.y,rayMarchResult.z);
+                if(sampleID == 1){
+                    startingDistanceOptimization = min(firstTwoSampleDistances[0],firstTwoSampleDistances[1]) * 0.999;
+                    if(startingDistanceOptimization == 1000.0){
+                        break;
+                    }
+                }
+
+            }
+            else{
+                rayMarchResult = rayMarch(pixelCoordinate,rayOrigin, rayDirection,startingDistanceOptimization,sampleID);
+                primaryRayColor = vec3(rayMarchResult.x,rayMarchResult.y,rayMarchResult.z);
+
+            }
+
+            // Perform ray marching
+            //vec3 primaryRayColor = rayMarch(pixelCoordinate,rayOrigin, rayDirection);
+            //vec3 primaryRayColor = vec3(1.0,0.0,1.0);
+
+            
+        
+            //vec3 toneMapped = primaryRayColor / (primaryRayColor + vec3(1.0));
+            //vec3 gammaCorrected = pow(toneMapped, vec3(1.0/2.2));
+
+
+            //determine color based on hit
+            vec4 outputColor = vec4(primaryRayColor,1.0);
+            //vec4 outputColor = vec4(toneMapped,1.0);
+            //vec4 outputColor = vec4(gammaCorrected,1.0);
+        
+            
+            imageStore(renderImageArray, ivec3(pixelCoordinate,sampleID), outputColor);
+        }
+    }
+
+
+    else if(rendererPushConstants.renderStage == 1){
+        vec4 outputColor = vec4(0.0, 0.0, 0.0, 0.0);
+        for(int i = 0; i < 8; i++){
+            int count = 0;
+            vec4 left = vec4(0.0, 0.0, 0.0, 0.0); if(pixelCoordinate.x > 0){left = imageLoad(renderImageArray,ivec3(pixelCoordinate.x-1,pixelCoordinate.y,i)); count = count + 1;}
+            vec4 right = vec4(0.0, 0.0, 0.0, 0.0); if(pixelCoordinate.x < (rendererPushConstants.mainCamera.screenSize[0] - 1)){right = imageLoad(renderImageArray,ivec3(pixelCoordinate.x+1,pixelCoordinate.y,i)); count = count + 1;}
+            vec4 top = vec4(0.0, 0.0, 0.0, 0.0); if(pixelCoordinate.y > 0){top = imageLoad(renderImageArray,ivec3(pixelCoordinate.x,pixelCoordinate.y-1,i)); count = count + 1;}
+            vec4 bottom = vec4(0.0, 0.0, 0.0, 0.0); if(pixelCoordinate.y < (rendererPushConstants.mainCamera.screenSize[1] - 1)){bottom = imageLoad(renderImageArray,ivec3(pixelCoordinate.x,pixelCoordinate.y+1,i)); count = count + 1;}
+            float neighborWeight = 0.05;
+            float centerWeight   = 1.0 - neighborWeight * float(count);
+            outputColor = outputColor + (centerWeight * imageLoad(renderImageArray, ivec3(pixelCoordinate,i))) + ((left + right + top + bottom) * neighborWeight);
+            
+
+        }
+
+       
+        
+        
+
+        outputColor = outputColor / 8;
+        vec3 toneMapped = vec3(outputColor) / (vec3(outputColor) + vec3(1.0));
+        imageStore(renderImageArray, ivec3(pixelCoordinate,0), vec4(toneMapped,outputColor.w));
+        
+
+    }
+}
