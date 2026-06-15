@@ -1,4 +1,14 @@
 This repository contains work-in-progress source for a systems-level Linux renderer and graphical environment written in C/C++. The project uses low-level system libraries and Vulkan compute shaders. It features a custom ray marching/intersection hybrid path tracer and an extensible UI renderer designed for scalable composited interface rendering
+
+
+
+<img width="1920" height="1080" alt="vlcsnap-2026-06-15-04h33m10s425" src="https://github.com/user-attachments/assets/2b676952-a724-4ef3-bb35-263298757836" />
+<img width="1920" height="1080" alt="vlcsnap-2026-06-15-02h19m10s110" src="https://github.com/user-attachments/assets/b4f302ee-2045-4873-872a-64629bfeba7d" />
+<img width="1920" height="1080" alt="vlcsnap-2026-06-15-04h33m47s069" src="https://github.com/user-attachments/assets/fb229281-7def-42bb-9928-4618602d0d81" />
+<img width="1920" height="1080" alt="vlcsnap-2026-06-15-02h21m39s827" src="https://github.com/user-attachments/assets/0646b1f6-8166-4410-845e-ffb0a867289e" />
+<img width="1920" height="1080" alt="vlcsnap-2026-06-15-02h19m10s110" src="https://github.com/user-attachments/assets/944eda1d-a4af-4e1d-8356-68c34c947023" />
+<img width="1920" height="1080" alt="vlcsnap-2026-06-15-04h32m50s427" src="https://github.com/user-attachments/assets/f490d94f-45d9-42e2-a31a-c72d53b28901" />
+<img width="1920" height="1080" alt="vlcsnap-2026-06-15-04h32m39s200" src="https://github.com/user-attachments/assets/29eeab69-b00e-410e-b871-84e8635a0fb9" />
 <img width="1920" height="1080" alt="vlcsnap-2026-06-09-23h52m38s791" src="https://github.com/user-attachments/assets/1c9d2259-663d-43f4-8b8d-9fb5193c2c6c" />
 <img width="1920" height="1080" alt="vlcsnap-2026-06-09-22h12m44s564" src="https://github.com/user-attachments/assets/da88005b-d3a8-4604-9b4c-bb14e39071ee" />
 <img width="1920" height="1440" alt="EarlyProgressPic" src="https://github.com/user-attachments/assets/04626464-488a-4b41-ae50-ee5e83d3fc03" />
