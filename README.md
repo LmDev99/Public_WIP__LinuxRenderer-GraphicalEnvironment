@@ -1,5 +1,12 @@
 This repository contains work-in-progress source for a systems-level Linux renderer and graphical environment written in C/C++. The project uses low-level system libraries and Vulkan compute shaders. It features a custom ray marching/intersection hybrid path tracer and an extensible UI renderer designed for scalable composited interface rendering
 
+## Support
+
+If you would like to support continued development of this project, you can follow or support the project on Patreon:
+
+https://www.patreon.com/cw/LmDev99
+
+## Screenshots
 
 <a href="https://github.com/user-attachments/assets/2b676952-a724-4ef3-bb35-263298757836">
   <img width="1920" height="1080" alt="Vulkan Compute renderer output10" src="https://github.com/user-attachments/assets/2b676952-a724-4ef3-bb35-263298757836" />
