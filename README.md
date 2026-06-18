@@ -8,20 +8,6 @@ https://www.patreon.com/cw/LmDev99
 
 ## Screenshots
 
-<img width="1920" height="1080" alt="Vulkan Compute renderer smoothminEarlyTestOutput1" src="https://github.com/user-attachments/assets/aa552a42-f1ba-4a74-876b-86d43c4fec8d" />
-
-<img width="1920" height="1080" alt="Vulkan Compute renderer smoothminEarlyTestOutputx" src="https://github.com/user-attachments/assets/c20deb17-3a6d-4760-bbab-ae5491b3044c" />
-
-<img width="1920" height="1080" alt="Vulkan Compute renderer smoothminEarlyTestOutput6" src="https://github.com/user-attachments/assets/1dcdbd3e-3c0c-497f-a979-1d1bd280b409" />
-<img width="1920" height="1080" alt="8 vlcsnap-2026-06-18-07h45m35s358" src="https://github.com/user-attachments/assets/2a498426-9f2a-4390-a87a-1847b5bb8b23" />
-
-
-
-
-
-
-
-
 <a href="https://github.com/user-attachments/assets/2b676952-a724-4ef3-bb35-263298757836">
   <img width="1920" height="1080" alt="Vulkan Compute renderer output10" src="https://github.com/user-attachments/assets/2b676952-a724-4ef3-bb35-263298757836" />
 </a>
@@ -57,6 +43,18 @@ https://www.patreon.com/cw/LmDev99
 <a href="https://github.com/user-attachments/assets/da88005b-d3a8-4604-9b4c-bb14e39071ee">
   <img width="1920" height="1080" alt="Vulkan Compute renderer output" src="https://github.com/user-attachments/assets/da88005b-d3a8-4604-9b4c-bb14e39071ee" />
 </a>
+
+
+<img width="1920" height="1080" alt="Vulkan Compute renderer smoothminEarlyTestOutput1" src="https://github.com/user-attachments/assets/aa552a42-f1ba-4a74-876b-86d43c4fec8d" />
+
+<img width="1920" height="1080" alt="Vulkan Compute renderer smoothminEarlyTestOutputx" src="https://github.com/user-attachments/assets/c20deb17-3a6d-4760-bbab-ae5491b3044c" />
+
+<img width="1920" height="1080" alt="Vulkan Compute renderer smoothminEarlyTestOutput6" src="https://github.com/user-attachments/assets/1dcdbd3e-3c0c-497f-a979-1d1bd280b409" />
+<img width="1920" height="1080" alt="8 vlcsnap-2026-06-18-07h45m35s358" src="https://github.com/user-attachments/assets/2a498426-9f2a-4390-a87a-1847b5bb8b23" />
+
+
+
+
 
 <a href="https://github.com/user-attachments/assets/04626464-488a-4b41-ae50-ee5e83d3fc03">
   <img width="1920" height="1440" alt="Early renderer development screenshot" src="https://github.com/user-attachments/assets/04626464-488a-4b41-ae50-ee5e83d3fc03" />
