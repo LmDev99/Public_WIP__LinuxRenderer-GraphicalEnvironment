@@ -16,9 +16,24 @@ https://www.patreon.com/cw/LmDev99
   <img width="1920" height="1080" alt="Vulkan Compute renderer output4" src="https://github.com/user-attachments/assets/b4f302ee-2045-4873-872a-64629bfeba7d" />
 </a>
 
+
+<img width="1920" height="1080" alt="vlcsnap-2026-06-19-00h10m38s554" src="https://github.com/user-attachments/assets/4693cdf4-6c28-42d7-bf79-9370dc36ec7e" />
+
+
+
+
+
 <a href="https://github.com/user-attachments/assets/fb229281-7def-42bb-9928-4618602d0d81">
   <img width="1920" height="1080" alt="Vulkan Compute renderer output11" src="https://github.com/user-attachments/assets/fb229281-7def-42bb-9928-4618602d0d81" />
 </a>
+
+
+<img width="1920" height="1080" alt="vlcsnap-2026-06-19-00h09m48s331" src="https://github.com/user-attachments/assets/fe3fa118-ed59-4b98-a568-3eaf8eb077c6" />
+
+<img width="1920" height="1080" alt="vlcsnap-2026-06-19-00h11m29s092" src="https://github.com/user-attachments/assets/f69e684f-cfed-48ae-bd39-b71ca2cd37c6" />
+
+
+
 
 <a href="https://github.com/user-attachments/assets/0646b1f6-8166-4410-845e-ffb0a867289e">
   <img width="1920" height="1080" alt="Vulkan Compute renderer output5" src="https://github.com/user-attachments/assets/0646b1f6-8166-4410-845e-ffb0a867289e" />
@@ -29,9 +44,23 @@ https://www.patreon.com/cw/LmDev99
   <img width="1920" height="1080" alt="Vulkan Compute renderer output9" src="https://github.com/user-attachments/assets/f490d94f-45d9-42e2-a31a-c72d53b28901" />
 </a>
 
+<img width="1920" height="1080" alt="vlcsnap-2026-06-18-07h50m37s007" src="https://github.com/user-attachments/assets/acadaac9-0804-45b7-a2ed-0f4575d31fed" />
+
+
+
+
 <a href="https://github.com/user-attachments/assets/29eeab69-b00e-410e-b871-84e8635a0fb9">
   <img width="1920" height="1080" alt="Vulkan Compute renderer output8" src="https://github.com/user-attachments/assets/29eeab69-b00e-410e-b871-84e8635a0fb9" />
 </a>
+
+
+
+<img width="1920" height="1080" alt="vlcsnap-2026-06-18-07h46m02s417" src="https://github.com/user-attachments/assets/284ea9fe-703c-4f68-82c5-509e333b71b4" />
+
+<img width="1920" height="1080" alt="vlcsnap-2026-06-18-07h48m03s041" src="https://github.com/user-attachments/assets/d7719117-ce58-4405-8224-9bd6ae43007f" />
+
+
+
 
 <a href="https://github.com/user-attachments/assets/1c9d2259-663d-43f4-8b8d-9fb5193c2c6c">
   <img width="1920" height="1080" alt="Vulkan Compute renderer output" src="https://github.com/user-attachments/assets/1c9d2259-663d-43f4-8b8d-9fb5193c2c6c" />
@@ -42,9 +71,7 @@ https://www.patreon.com/cw/LmDev99
 </a>
 
 
-<img width="1920" height="1080" alt="Vulkan Compute renderer smoothminEarlyTestOutput1" src="https://github.com/user-attachments/assets/aa552a42-f1ba-4a74-876b-86d43c4fec8d" />
 
-<img width="1920" height="1080" alt="Vulkan Compute renderer smoothminEarlyTestOutputx" src="https://github.com/user-attachments/assets/c20deb17-3a6d-4760-bbab-ae5491b3044c" />
 
 <img width="1920" height="1080" alt="Vulkan Compute renderer smoothminEarlyTestOutput6" src="https://github.com/user-attachments/assets/1dcdbd3e-3c0c-497f-a979-1d1bd280b409" />
 <img width="1920" height="1080" alt="8 vlcsnap-2026-06-18-07h45m35s358" src="https://github.com/user-attachments/assets/2a498426-9f2a-4390-a87a-1847b5bb8b23" />
