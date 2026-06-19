@@ -24,9 +24,6 @@ https://www.patreon.com/cw/LmDev99
   <img width="1920" height="1080" alt="Vulkan Compute renderer output5" src="https://github.com/user-attachments/assets/0646b1f6-8166-4410-845e-ffb0a867289e" />
 </a>
 
-<a href="https://github.com/user-attachments/assets/944eda1d-a4af-4e1d-8356-68c34c947023">
-  <img width="1920" height="1080" alt="Vulkan Compute renderer output4" src="https://github.com/user-attachments/assets/944eda1d-a4af-4e1d-8356-68c34c947023" />
-</a>
 
 <a href="https://github.com/user-attachments/assets/f490d94f-45d9-42e2-a31a-c72d53b28901">
   <img width="1920" height="1080" alt="Vulkan Compute renderer output9" src="https://github.com/user-attachments/assets/f490d94f-45d9-42e2-a31a-c72d53b28901" />
