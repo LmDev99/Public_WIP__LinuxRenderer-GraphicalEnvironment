@@ -4463,13 +4463,13 @@ perhaps we need to redo the input thread to now record entries as
                     if(UiPanes[i].RowLineRegion){
                         //refresh rowLineRegion
                         for(int j = UiPanes[i].RowLineRegion->FirstVisibleRowLineIndexTop; j <= UiPanes[i].RowLineRegion->LastVisibleRowLineIndexBottom; j++){
-                            //printf("GOT HERE??? \n");
+                            
                             if(isUpdateBlockInRowLine(uiMouse.PreviousCursorUpdateBlock,i,j)){
-                                //printf("GOT HERE \n");
+                              
                                 
 
                                 if(UiPanes[i].RowLineRegion->RowLineBuffer[j].TextBoxBuffer){
-                                    //printf("GOT HERE! \n");
+                                    
                                     for(int k = 0; k <  UiPanes[i].RowLineRegion->RowLineBuffer[j].TextBoxBufferIndex; k++){
                                         //int textUpdateIndicesSize = UiPanes[i].RowLineRegion->RowLineBuffer[j].TextBoxBufferIndex;
                                         int textUpdateIndicesSize = UiPanes[i].RowLineRegion->RowLineBuffer[j].TextBoxBuffer[k].TextBufferIndex;
@@ -4480,7 +4480,7 @@ perhaps we need to redo the input thread to now record entries as
                                     }
                                 }
                                 else if(UiPanes[i].RowLineRegion->RowLineBuffer[j].VisualElementBuffer){
-                                    //printf("GOT HERE !! \n");
+                                  
                                 
                                     for(int k = 0; k < UiPanes[i].RowLineRegion->RowLineBuffer[j].VisualElementBufferIndex; k++){
                                         
@@ -4506,7 +4506,7 @@ perhaps we need to redo the input thread to now record entries as
                     }
                     if(UiPanes[i].freeRowLines){
                         
-                        //printf("DEBUG TEST HERE FOR NOW %d \n", UiPanes[i].numberOfFreeRowLines);
+                      
                         for(int m = 0; m < UiPanes[i].numberOfFreeRowLines; m++){
                            
                             
@@ -4515,20 +4515,20 @@ perhaps we need to redo the input thread to now record entries as
                                 
                                 
                                 if(UiPanes[i].freeRowLines[m].TextBoxBuffer){
-                                    //printf("DEBUGGING ALSO HIT HERE AS WELL 1 \n");
+                                
                                     for(int k = 0; k <  UiPanes[i].freeRowLines[m].TextBoxBufferIndex; k++){
                                         //printf("k = %d \n", k);
                                         //int textUpdateIndicesSize = UiPanes[i].freeRowLines[m].TextBoxBufferIndex;
                                         int textUpdateIndicesSize = UiPanes[i].freeRowLines[m].TextBoxBuffer[k].TextBufferIndex;
                                         bool textUpdateIndices[textUpdateIndicesSize] = {0};
-                                        //printf("GOT HERE!\n");
+                                     
                                         if(UiPanes[i].freeRowLines[m].TextBoxBuffer[k].isUpdateBlockInTextBox(uiMouse.PreviousCursorUpdateBlock,textUpdateIndices)){
                                             UiPanes[i].freeRowLines[m].TextBoxBuffer[k].AddRedrawRegion(textUpdateIndices);
                                         }
                                     }
                                 }
                                 else if(UiPanes[i].freeRowLines[m].VisualElementBuffer){
-                                    //printf("DEBUGGING ALSO HIT HERE AS WELL 2 \n");
+                              
                                     for(int k = 0; k < UiPanes[i].freeRowLines[m].VisualElementBufferIndex; k++){
                                         updateBlock visualElementOverlapRegion = {};
                                         if(UiPanes[i].freeRowLines[m].VisualElementBuffer[k].isUpdateBlockInUiElement(uiMouse.PreviousCursorUpdateBlock,&visualElementOverlapRegion)){
@@ -4611,15 +4611,15 @@ perhaps we need to redo the input thread to now record entries as
                                 UiPanes[i].RowLineRegion->NumberOfMouseSelectedElements = -UiPanes[i].RowLineRegion->NumberOfMouseSelectedElements;
 
                             }
-                            //printf("GOT HERER!!!!???!102425 \n");
+                           
                             for(int j = 0; j < UiPanes[i].RowLineRegion->NumberOfMouseSelectedElements * 2; j = j +2){
-                                //printf("GOT HERER!!!!???!102425 j = %d \n", j);
+                              
                                 UiPanes[i].RowLineRegion->renderSpecificElement(this,UiPanes[i].RowLineRegion->mouseSelectedLocation[j],UiPanes[i].RowLineRegion->mouseSelectedLocation[j+1]);
                             }
-                            //printf("ORRR HERER!!!!???!102425 \n");
+                        
                             if(mouseSelectionNeedsCleared){UiPanes[i].RowLineRegion->modifyMouseSelections(-1 - (UiPanes[i].RowLineRegion->needsRefresh[1] == 1));}
                             
-                            //printf("NO WAY ITS HERER!!!!???!102425 \n");
+                         
                             UiPanes[i].RowLineRegion->needsRefresh[2] = 0;
                         }
                         if(UiPanes[i].RowLineRegion->needsRefresh[1] == 1){
@@ -4636,7 +4636,7 @@ perhaps we need to redo the input thread to now record entries as
                             
                             if(uiMouse.locationData[0][3] >= 0){
                                 UiPanes[i].RowLineRegion->renderSpecificElement(this,uiMouse.locationData[0][2],uiMouse.locationData[0][3]);
-                                //printf("is this last \n");
+                          
                             }
                             UiPanes[i].RowLineRegion->needsRefresh[3] = 0;
                         }
@@ -4645,7 +4645,7 @@ perhaps we need to redo the input thread to now record entries as
                         if(UiPanes[i].RowLineRegion->needsRefresh[4] > 0){ 
                             //printf("else if(UiPanes[i].RowLineRegion->needsRefresh[3] > 0){} \n");
                             if(uiMouse.locationData[1][3] >= 0){
-                                    //printf("processUpdates() : this shouldnt hit yet : \n");
+                                 
                                     UiPanes[i].RowLineRegion->renderSpecificElement(this,uiMouse.locationData[1][2],uiMouse.locationData[1][3]);
                                 }
                                 UiPanes[i].RowLineRegion->needsRefresh[4] = 0;
@@ -4655,7 +4655,7 @@ perhaps we need to redo the input thread to now record entries as
                         UiPanes[i].RowLineRegion->needsRefresh[0] = 0;
                     }
                 }
-                //printf("10-08 all the way here? \n");
+               
                 if(UiPanes[i].freeRowLines){
                     if(UiPanes[i].freeRowLinesNeedRefresh == 1){
                         for(int j = 0; j < UiPanes[i].numberOfFreeRowLines;j++){
@@ -5180,7 +5180,7 @@ void rowLineCluster::initializeRowLineCluster(int type,int clusterVerticalOffset
         
         //EDIT 05/03/2025 since ElementPrototype->firstElementPixelCoordinateX will now be changed to offset of rowlineregions bounds we add the leftSideValue of rowlineregion
         StartingElementPositionX = ElementPrototype->firstElementPixelCoordinateX + parentRowLineRegion->LeftSideXValue;
-        ElementHeight = ElementBottomSideYValue - ElementTopSideYValue; //Remember the Ui System folls the same coordinate system as glsl, so that means x increases from left to right, y increases from top to bottom, therefore height (which is a positive value) needs to be bottomCoordinate-topCoordinate
+        ElementHeight = ElementBottomSideYValue - ElementTopSideYValue; //Remember the Ui System follows the same coordinate system as glsl, so that means x increases from left to right, y increases from top to bottom, therefore height (which is a positive value) needs to be bottomCoordinate-topCoordinate
 
         printf("rowLineCluster::initializeRowLineCluster() : ElementHeight = %d \n ",ElementHeight);
         printf("rowLineCluster::initializeRowLineCluster() : ElementWidth = %d \n ",ElementWidth); 
