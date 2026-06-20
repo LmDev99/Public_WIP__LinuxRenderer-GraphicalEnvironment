@@ -400,7 +400,7 @@ int GET_VULKAN_PHYSICAL_DEVICE(VkInstance instance,VkSurfaceKHR surface,VkPhysic
        
         //If device[i] is marked as suitable then that device is then returned from the procedure
         if(((queueIndicesBuffer[0] > -1) && (queueIndicesBuffer[1] > -1)) && (isSwapChainExtensionSupported) && (swapChainIsAdequate)){
-            printf("thank god \n");
+           
             *returnSelectedGraphicsCard = availableDevices[i];
             returnQueueFamilyIndices[0] = queueIndicesBuffer[0];
             returnQueueFamilyIndices[1] = queueIndicesBuffer[1];
@@ -3935,7 +3935,7 @@ the second iteration should then
         printf("ABOUT TO DEBUG PROCESS UPDATES \n");
 
         defualtStartupScene.prepareToRenderScene();
-        //printf("THIS IS WHERE THE BUG IS ITS AT prepareTORenderScene() \n");
+        
 
         ui.processUpdates();         
         printf("uiToVulkan->numberOfUpdateBlocks = %d \n",uiToVulkan->numberOfUpdateBlocks);
